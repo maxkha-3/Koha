@@ -756,7 +756,7 @@ sub handle_checkin {
         $resp .= 'U';
     }
 
-    $resp .= $status->alert ? 'Y' : 'N';
+    $resp .= ( $status->alert || $item->magnetic_media ) ? 'Y' : 'N';
     $resp .= timestamp;
     $resp .= add_field( FID_INST_ID, $inst_id, $server );
     $resp .= add_field( FID_ITEM_ID, $item_id, $server );
@@ -932,19 +932,19 @@ sub login_core {
     my $pwd    = shift;
     my $status = 1;                 # Assume it all works
 
+    # Clear any session state up front, including anything left over from a previous connection
+    # on this preforked worker, so no login_core exit path can leave the caller acting as an
+    # authenticated terminal. Only a successful api_auth below re-establishes the session.
+    delete $server->{$_} foreach qw( account ils institution policy sip_username sip_password );
+
     # Check if this userid is authorized for SIP access
     if ( !exists( $server->{config}->{accounts}->{$uid} ) ) {
         siplog( "LOG_WARNING", "MsgType::login_core: SIP access not authorized for user '$uid'" );
         return 0;
     }
 
-    # Store the active account configuration
-    $server->{account} = $server->{config}->{accounts}->{$uid};
-    my $inst = $server->{account}->{institution};
-    $server->{institution}  = $server->{config}->{institutions}->{$inst};
-    $server->{policy}       = $server->{institution}->{policy};
-    $server->{sip_username} = $uid;
-    $server->{sip_password} = $pwd;
+    # Authenticate before storing the account on the session
+    my $inst = $server->{config}->{accounts}->{$uid}->{institution};
 
     # Authenticate using Koha's internal authentication (checks hashed password in borrowers table)
     my $auth_status = api_auth( $uid, $pwd, $inst );
@@ -955,6 +955,13 @@ sub login_core {
         );
         return 0;
     }
+
+    # Store the active account configuration now user has authenticated
+    $server->{account}      = $server->{config}->{accounts}->{$uid};
+    $server->{institution}  = $server->{config}->{institutions}->{$inst};
+    $server->{policy}       = $server->{institution}->{policy};
+    $server->{sip_username} = $uid;
+    $server->{sip_password} = $pwd;
 
     siplog( "LOG_INFO", "Successful login/auth for '%s' of '%s'", $server->{account}->{id}, $inst );
 

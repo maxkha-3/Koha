@@ -1161,6 +1161,27 @@ CREATE TABLE `biblio_metadata` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `biblio_metadata_errors`
+--
+
+DROP TABLE IF EXISTS `biblio_metadata_errors`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biblio_metadata_errors` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `metadata_id` int(11) NOT NULL COMMENT 'FK to biblio_metadata.id',
+  `error_type` varchar(64) NOT NULL COMMENT 'Error type identifier, e.g. nonxml_stripped',
+  `tag` varchar(3) DEFAULT NULL COMMENT 'MARC tag affected, if applicable',
+  `subfield` varchar(1) DEFAULT NULL COMMENT 'MARC subfield code affected, if applicable',
+  `message` mediumtext DEFAULT NULL COMMENT 'Error message details',
+  `created_on` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `biblio_metadata_errors_fk_1` (`metadata_id`),
+  CONSTRAINT `biblio_metadata_errors_fk_1` FOREIGN KEY (`metadata_id`) REFERENCES `biblio_metadata` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `biblioitems`
 --
 
@@ -4391,6 +4412,7 @@ CREATE TABLE `itemtypes` (
   `checkinmsg` varchar(255) DEFAULT NULL COMMENT 'message that is displayed when an item with the given item type is checked in',
   `checkinmsgtype` char(16) NOT NULL DEFAULT 'message' COMMENT 'type (CSS class) for the checkinmsg, can be ''alert'' or ''message''',
   `sip_media_type` varchar(3) DEFAULT NULL COMMENT 'SIP2 protocol media type for this itemtype',
+  `sip_magnetic` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Indicates if items of this type are magnetic media for SIP',
   `hideinopac` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Hide the item type from the search options in OPAC',
   `searchcategory` varchar(80) DEFAULT NULL COMMENT 'Group this item type with others with the same value on OPAC search options',
   `automatic_checkin` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'If automatic checkin is enabled for items of this type',

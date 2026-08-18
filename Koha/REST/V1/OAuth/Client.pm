@@ -77,6 +77,11 @@ sub login {
         return $c->redirect_to( $uri . "?auth_error=$error" );
     }
 
+    unless ($current_session_cookie) {
+        my $error = "No user session found";
+        return $c->redirect_to( $uri . "?auth_error=$error" );
+    }
+
     unless ( $provider_config->{authorize_url} =~ /response_type=code/ ) {
         my $authorize_url = Mojo::URL->new( $provider_config->{authorize_url} );
         $authorize_url->query->append( response_type => 'code' );
@@ -94,7 +99,7 @@ sub login {
         unless (
             Koha::Token->new->check_csrf(
                 {
-                    session_id => $c->req->cookie('CGISESSID')->value,
+                    session_id => $current_session_cookie->value,
                     token      => $c->param('state'),
                 }
             )
@@ -106,7 +111,7 @@ sub login {
     } else {
 
         # initial request, generate CSRF token
-        $state = Koha::Token->new->generate_csrf( { session_id => $c->req->cookie('CGISESSID')->value } );
+        $state = Koha::Token->new->generate_csrf( { session_id => $current_session_cookie->value } );
 
         Koha::Auth::Identity::Referer->store_referer(
             {

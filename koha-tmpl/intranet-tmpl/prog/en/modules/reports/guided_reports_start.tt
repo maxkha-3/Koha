@@ -212,7 +212,7 @@
                 <div id="loading"> <img src="[% interface | html %]/[% theme | html %]/img/spinner-small.gif" alt="" /> Loading </div>
             </div>
             <div class="modal-footer">
-                <a href="#" class="btn btn-default" id="update_sql_button" role="button" data-bs-toggle="modal">Update</a>
+                <a href="#" class="btn btn-default" id="update_sql_button" role="button">Update</a>
                 <button class="btn btn-default" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
@@ -261,10 +261,6 @@
                     <p>Use the reports dictionary to define custom criteria to use in your reports</p>
                     <a href="/cgi-bin/koha/reports/dictionary.pl?op=list" class="btn btn-primary">View dictionary</a>
                 [% END # /IF (start) %]
-
-                [% IF report_converted %]
-                    <div class="alert alert-info"> The report "[% report_converted | html %]" has been converted. </div>
-                [% END %]
 
                 [% IF report_converted %]
                     <div class="alert alert-info"> The report "[% report_converted | html %]" has been converted. </div>

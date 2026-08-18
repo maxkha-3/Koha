@@ -17,10 +17,11 @@
 
 use Modern::Perl;
 
-use Test::More tests => 3;
+use Test::More tests => 5;
 use Test::NoWarnings;
 use File::Temp qw( tempdir );
 use File::Spec;
+use JSON qw( decode_json );
 
 use Koha::File::Transports;
 
@@ -112,6 +113,115 @@ subtest 'current_directory() tests' => sub {
     is(
         $transport->current_directory, $subdir_path,
         "current_directory() reflects the most recent change_directory() call"
+    );
+
+    $schema->storage->txn_rollback;
+};
+
+subtest 'an unconfigured directory fails cleanly instead of falling back to "." (the Koha process cwd)' => sub {
+    plan tests => 10;
+
+    $schema->storage->txn_begin;
+
+    my $tempdir    = tempdir( CLEANUP => 1 );
+    my $upload_dir = File::Spec->catdir( $tempdir, 'upload' );
+    mkdir $upload_dir or die "Cannot create upload_dir: $!";
+
+    # Only upload_directory is configured - download_directory is explicitly
+    # unset (TestBuilder would otherwise auto-fill it with a random string),
+    # as is any change_directory() override.
+    my $transport = $builder->build_object(
+        {
+            class => 'Koha::File::Transports',
+            value => {
+                transport          => 'local',
+                upload_directory   => $upload_dir,
+                download_directory => undef,
+            }
+        }
+    );
+
+    my $files = $transport->list_files();
+    is( $files, undef, 'list_files() fails when no download_directory is configured and no override is set' );
+
+    my ($list_error) = grep { $_->type eq 'error' } @{ $transport->object_messages };
+    ok( $list_error, 'list_files() records an error message' );
+    like(
+        $list_error->payload->{error}, qr/No download directory configured/,
+        'error explains the directory is unconfigured, rather than silently listing an unrelated directory'
+    );
+
+    my $reloaded         = Koha::File::Transports->find( $transport->id );
+    my $persisted_status = decode_json( $reloaded->status );
+    is( $persisted_status->{status}, 'errors', 'a "not configured" error also persists an "errors" status' );
+    is( $persisted_status->{operations}[-1]{code}, 'list', 'persisted status records the failing operation' );
+
+    my $renamed = $transport->rename_file( 'a.txt', 'b.txt' );
+    is( $renamed, undef, 'rename_file() fails the same way when no download_directory is configured' );
+
+    my $tmp_upload_src = File::Spec->catfile( $tempdir, 'to_upload.txt' );
+    open my $fh, '>', $tmp_upload_src or die "Cannot create test file: $!";
+    print $fh 'content';
+    close $fh;
+
+    # upload_directory IS configured, so this direction should still work.
+    my $uploaded = $transport->upload_file( $tmp_upload_src, 'to_upload.txt' );
+    is( $uploaded, 1, 'upload_file() still succeeds when upload_directory is configured' );
+    ok(
+        -f File::Spec->catfile( $upload_dir, 'to_upload.txt' ),
+        'the file was uploaded to the configured upload_directory'
+    );
+
+    # download_file() has no download_directory to fall back to either. Reset
+    # {current_directory} first: the auto-managed upload_file() call above
+    # left it pointing at upload_dir as a side effect (unrelated to this fix)
+    # of _auto_change_directory() calling _change_directory() internally.
+    $transport->{current_directory} = undef;
+    my $downloaded = $transport->download_file( 'to_upload.txt', File::Spec->catfile( $tempdir, 'downloaded.txt' ) );
+    is( $downloaded, undef, 'download_file() fails when no download_directory is configured' );
+
+    my ($download_error) = grep { $_->type eq 'error' } reverse @{ $transport->object_messages };
+    like(
+        $download_error->payload->{error}, qr/No (?:download|upload) directory configured/,
+        'download_file() also records a clear "not configured" error rather than falling back to "."'
+    );
+
+    $schema->storage->txn_rollback;
+};
+
+subtest '_abort_operation persists status consistently (bug 42656 QA follow-up)' => sub {
+    plan tests => 5;
+
+    $schema->storage->txn_begin;
+
+    my $transport = $builder->build_object(
+        {
+            class => 'Koha::File::Transports',
+            value => { transport => 'local' }
+        }
+    );
+
+    # Before this fix, Local never persisted a status snapshot on error at
+    # all (it had no _abort_operation), unlike SFTP.
+    my $result = $transport->change_directory('/this/does/not/exist');
+    is( $result, undef, 'change_directory() returns undef for a missing directory' );
+
+    my ($error) = grep { $_->type eq 'error' } @{ $transport->object_messages };
+    ok( $error, 'an error message was recorded' );
+    is(
+        $error->payload->{path}, '/this/does/not/exist',
+        'error payload uses the "path" key, matching FTP and SFTP'
+    );
+
+    my $reloaded         = Koha::File::Transports->find( $transport->id );
+    my $persisted_status = decode_json( $reloaded->status );
+    is(
+        $persisted_status->{status}, 'errors',
+        'status column now persists an "errors" status after a failed operation, matching FTP and SFTP'
+    );
+    is(
+        $persisted_status->{operations}[0]{code}, 'change_directory',
+        'persisted status records which operation failed'
     );
 
     $schema->storage->txn_rollback;
